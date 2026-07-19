@@ -66,7 +66,12 @@ class Task extends Equatable {
     return createdAt.add(const Duration(hours: 10));
   }
 
-  bool get isExpired => taskStatus == TaskStatus.open && DateTime.now().isAfter(effectiveExpiresAt);
+  bool get isExpired {
+    // A task is only "Expired" if it hasn't been started yet (status 'open')
+    // Once it's 'in_progress' or 'completed', do NOT consider it expired for UI purposes.
+    if (status != 'open') return false;
+    return DateTime.now().isAfter(effectiveExpiresAt);
+  }
 
   Duration get remainingTime {
     final diff = effectiveExpiresAt.difference(DateTime.now());

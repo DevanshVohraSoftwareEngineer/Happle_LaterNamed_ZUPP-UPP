@@ -28,6 +28,7 @@ class User extends Equatable {
   final String? selfieWithIdUrl;
   final String? verificationStatus;
   final double? distanceMeters;
+  final DateTime? bannedUntil;
 
   const User({
     required this.id,
@@ -56,6 +57,7 @@ class User extends Equatable {
     this.selfieWithIdUrl,
     this.verificationStatus,
     this.distanceMeters,
+    this.bannedUntil,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -107,6 +109,13 @@ class User extends Equatable {
         } catch (_) {}
       }
 
+      DateTime? bannedUntil;
+      if (json['banned_until'] != null) {
+        try {
+          bannedUntil = DateTime.parse(json['banned_until']).toLocal();
+        } catch (_) {}
+      }
+
       return User(
         id: id,
         email: email,
@@ -133,6 +142,7 @@ class User extends Equatable {
         selfieUrl: json['selfie_url']?.toString() ?? json['selfieUrl']?.toString(),
         selfieWithIdUrl: json['selfie_with_id_url']?.toString() ?? json['selfieWithIdUrl']?.toString(),
         verificationStatus: json['verification_status']?.toString() ?? json['verificationStatus']?.toString(),
+        bannedUntil: bannedUntil,
       );
     } catch (e) {
       // Return a minimal user if parsing fails
@@ -201,6 +211,7 @@ class User extends Equatable {
       'selfie_url': selfieUrl,
       'selfie_with_id_url': selfieWithIdUrl,
       'verification_status': verificationStatus,
+      'banned_until': bannedUntil?.toIso8601String(),
     };
   }
 
@@ -231,6 +242,7 @@ class User extends Equatable {
     String? idCardUrl,
     String? selfieUrl,
     String? verificationStatus,
+    DateTime? bannedUntil,
   }) {
     return User(
       id: id ?? this.id,
@@ -259,6 +271,7 @@ class User extends Equatable {
       selfieUrl: selfieUrl ?? this.selfieUrl,
       selfieWithIdUrl: selfieWithIdUrl ?? this.selfieWithIdUrl,
       verificationStatus: verificationStatus ?? this.verificationStatus,
+      bannedUntil: bannedUntil ?? this.bannedUntil,
     );
   }
 
@@ -289,5 +302,6 @@ class User extends Equatable {
         selfieUrl,
         selfieWithIdUrl,
         verificationStatus,
+        bannedUntil,
       ];
 }

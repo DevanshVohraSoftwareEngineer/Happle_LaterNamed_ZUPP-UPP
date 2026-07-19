@@ -100,16 +100,19 @@ class MatchesNotifier extends StateNotifier<MatchesState> {
 
     // 1. Matches Stream
     _supabaseService.getMatchesStream().listen((data) async {
+      if (!mounted) return;
       await _fetchMatches(data);
     });
 
     // 2. Candidates Stream
     _supabaseService.getIncomingSwipesStream().listen((swipesData) async {
+       if (!mounted) return;
        await _fetchCandidates(swipesData, _userId!);
     });
 
     // 3. Task Status Stream (To sync "Permanent Actions" like Lock Deal)
     _supabaseService.getTasksStream().listen((data) {
+       if (!mounted) return;
        // When any task changes, re-fetch matches to pick up status changes
        _fetchMatches(state.matches.map((m) => {
          'id': m.id,
@@ -123,15 +126,23 @@ class MatchesNotifier extends StateNotifier<MatchesState> {
   }
 
   Future<void> _fetchMatches(List<Map<String, dynamic>> data) async {
-    final now = DateTime.now();
     final List<TaskMatch> hydratedMatches = [];
     
-    // Filter out matches older than 12 hours (Chat Expiry)
+    // Filter out matches older than 12 hours (Chat Expiry) OR tasks that are cancelled
     final validData = data.where((json) {
+      // 1. Check Expiry (12h limit)
       final createdAtStr = json['created_at'] ?? json['createdAt'] ?? json['matched_at'] ?? json['matchedAt'];
-      if (createdAtStr == null) return false; // Default to EXPIRED if no date found
+      if (createdAtStr == null) return false;
       final createdAt = DateTime.parse(createdAtStr.toString()).toUtc();
-      return now.toUtc().difference(createdAt).inHours < 12;
+      if (DateTime.now().toUtc().difference(createdAt).inHours >= 12) return false;
+
+      // 2. Check Task Status (Filter out cancelled/completed if desired, but here we focus on CANCELLED)
+      // Note: json might have flattened task_status from enriched_matches view
+      final taskStatus = json['task_status']?.toString().toLowerCase() ?? 
+                         json['status']?.toString().toLowerCase(); // fallback to match status
+      if (taskStatus == 'cancelled') return false;
+
+      return true;
     }).toList();
 
     for (var json in validData) {

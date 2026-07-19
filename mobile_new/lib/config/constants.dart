@@ -27,17 +27,14 @@ class AppConstants {
   
   // Task Categories
   static const List<String> taskCategories = [
-    'Tutoring & Doubt Clearing',
-    'Food & Item Delivery',
-    'Dorm/Room Cleaning',
-    'Tech & Laptop Support',
-    'Society & Event Help',
-    'Moving & Luggage Help',
-    'Stationary & Prints',
-    'Buy/Sell (Campus OLX)',
-    'Document & Writing Help',
-    'Quick Campus Errands',
-    'Other Campus Help'
+    'Tutoring',
+    'Delivery',
+    'Content Creation',
+    'Tech Support',
+    'Event Help',
+    'Moving',
+    'Pet Care',
+    'Other'
   ];
   
   // Task Status

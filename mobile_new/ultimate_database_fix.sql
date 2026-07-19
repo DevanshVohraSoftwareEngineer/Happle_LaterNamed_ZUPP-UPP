@@ -165,7 +165,7 @@ ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_avatar TEXT;
 CREATE OR REPLACE FUNCTION sync_chat_sender_info()
 RETURNS TRIGGER AS $$
 BEGIN
-  SELECT name, avatar_url INTO NEW.sender_name, NEW.sender_avatar
+  SELECT name, COALESCE(avatar_url, selfie_url) INTO NEW.sender_name, NEW.sender_avatar
   FROM profiles WHERE id = NEW.sender_id;
   RETURN NEW;
 END;
@@ -208,13 +208,13 @@ CREATE OR REPLACE VIEW enriched_matches AS
 SELECT 
     m.*,
     w.name as worker_name,
-    w.avatar_url as worker_avatar,
+    COALESCE(w.avatar_url, w.selfie_url) as worker_avatar,
     w.selfie_url as worker_selfie_url,
     w.id_card_url as worker_id_card_url,
     w.selfie_with_id_url as worker_selfie_with_id_url,
     w.verification_status as worker_verification_status,
     c.name as client_name,
-    c.avatar_url as client_avatar,
+    COALESCE(c.avatar_url, c.selfie_url) as client_avatar,
     c.selfie_url as client_selfie_url,
     c.id_card_url as client_id_card_url,
     c.selfie_with_id_url as client_selfie_with_id_url,
@@ -229,6 +229,61 @@ LEFT JOIN profiles c ON m.client_id = c.id
 LEFT JOIN tasks t ON m.task_id = t.id;
 
 GRANT SELECT ON enriched_matches TO authenticated;
+
+-- 7. Reports & Automated Ban Logic
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS banned_until TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reporter_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+    reported_user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    -- Prevent duplicate reports for the same task by the same user
+    UNIQUE(reporter_id, task_id)
+);
+
+-- Automated Ban Trigger
+CREATE OR REPLACE FUNCTION handle_post_report()
+RETURNS TRIGGER AS $$
+DECLARE
+    report_count INTEGER;
+BEGIN
+    -- Count unique reporters for the reported user
+    SELECT COUNT(DISTINCT reporter_id) INTO report_count
+    FROM reports
+    WHERE reported_user_id = NEW.reported_user_id;
+
+    -- If unique reports >= 30, ban for 48 hours
+    IF report_count >= 30 THEN
+        UPDATE profiles 
+        SET banned_until = now() + interval '48 hours'
+        WHERE id = NEW.reported_user_id;
+
+        -- Optionally: Cancel all active tasks for the banned user
+        -- UPDATE tasks SET status = 'cancelled' WHERE client_id = NEW.reported_user_id AND status = 'open';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_report_inserted ON reports;
+CREATE TRIGGER on_report_inserted
+AFTER INSERT ON reports
+FOR EACH ROW EXECUTE FUNCTION handle_post_report();
+
+-- RLS for Reports
+ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can create reports" ON reports;
+CREATE POLICY "Users can create reports" ON reports
+FOR INSERT TO authenticated WITH CHECK (auth.uid() = reporter_id);
+
+DROP POLICY IF EXISTS "Users can view their own reports" ON reports;
+CREATE POLICY "Users can view their own reports" ON reports
+FOR SELECT TO authenticated USING (auth.uid() = reporter_id);
 
 -- ========================================================
 -- FINISHED: RUN THIS IN SUPABASE SQL EDITOR

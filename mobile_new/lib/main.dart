@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -16,11 +17,18 @@ import 'config/router.dart';
 final shorebirdUpdater = ShorebirdUpdater();
 
 void main() async {
+  // 🛡️ Error Boundary: Capture Flutter errors globally
+  FlutterError.onError = (details) {
+    print('📦 FLUTTER UI ERROR: ${details.exception}');
+    if (kDebugMode) {
+      FlutterError.dumpErrorToConsole(details);
+    }
+  };
+
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
 
     // 1. START UI IMMEDIATELY
-    // We pass null for initialization results to show a booting screen
     runApp(
       const ProviderScope(
         child: MyApp(
@@ -29,9 +37,6 @@ void main() async {
         ),
       ),
     );
-
-    bool backendInitialized = false;
-    String? initializationError;
 
     try {
       // 2. LOAD SECRETS (with timeout)
@@ -44,19 +49,16 @@ void main() async {
 
       // 3. INITIALIZE BACKEND (with timeout)
       await SupabaseService.initialize().timeout(const Duration(seconds: 10));
-      backendInitialized = true;
       print('✅ Supabase initialized');
     } catch (e) {
       print('❌ Initialization failure: $e');
-      initializationError = e.toString();
     }
 
     // 4. TRANSITION TO READY STATE
     runApp(
-      ProviderScope(
+      const ProviderScope(
         child: MyApp(
-          backendInitialized: backendInitialized,
-          initializationError: initializationError,
+          backendInitialized: true,
           isBooting: false,
         ),
       ),
@@ -120,8 +122,6 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     
     // Safety check for initialized backend before metadata updates
     if (!widget.backendInitialized || !SupabaseService.instance.hasInitialized) return;
-    
-    final supabaseService = SupabaseService.instance;
 
     try {
       if (state == AppLifecycleState.resumed) {
@@ -144,7 +144,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     // Provider observation triggers Supabase access which crashes during boot.
     if (widget.isBooting) {
       return MaterialApp(
-        title: 'Happle',
+        title: 'ZUPP-UPP',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system, // Generic while booting
@@ -157,7 +157,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp.router(
-      title: 'Happle',
+      title: 'ZUPP-UPP',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
@@ -219,7 +219,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
           children: [
             CircularProgressIndicator(color: Colors.blue),
             SizedBox(height: 24),
-            Text('Powering Up Happle...', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+            Text('Powering Up ZUPP-UPP...', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
             SizedBox(height: 8),
             Text('STORAGE FIX v5: ACTIVE', style: TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
           ],
@@ -295,6 +295,9 @@ class BiometricLockWrapper extends ConsumerWidget {
                          location == '/reset-password';
 
     // ✨ Magic: Don't lock if user is not verified yet (allow KYC flow) OR if on onboarding screens
+    // ✨ FIX: Additional guard: If already biometric authenticated, just return child immediately
+    if (isBiometricDone) return child;
+
     if (isAuthenticated && !isBiometricDone && isVerified && !isOnboarding) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -305,7 +308,8 @@ class BiometricLockWrapper extends ConsumerWidget {
               const Icon(Icons.lock_person_rounded, size: 80, color: Colors.white),
               const SizedBox(height: 24),
               const Text(
-                'Happle Secured',
+                'ZUPP-UPP Secured',
+                textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 48),

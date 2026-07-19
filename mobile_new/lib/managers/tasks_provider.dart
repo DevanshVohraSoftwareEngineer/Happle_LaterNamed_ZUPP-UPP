@@ -244,12 +244,34 @@ class MyTasksNotifier extends StateNotifier<MyTasksState> {
 
   void _handleMyTaskData(List<Map<String, dynamic>> data) {
     // Filter locally for current user and check for expiration
+    // ✨ FIX: Robust filtering for My Tasks to exclude expired ones instantly
     final myTasks = data
         .where((json) => json['client_id'] == _userId)
         .map((json) => Task.fromJson(json))
-        .where((task) => !task.isExpired)
+        .where((task) {
+          // Permanently hide tasks that are expired OR Cancelled
+          final now = DateTime.now();
+          final isActuallyExpired = now.isAfter(task.effectiveExpiresAt);
+          final isCancelled = task.status.toLowerCase() == 'cancelled';
+          
+          if (isActuallyExpired || isCancelled) {
+            print('🗑️ Permanently deleting task from UI view: ${task.id} (status: ${task.status}, expired: $isActuallyExpired)');
+            return false;
+          }
+          return true;
+        })
         .toList();
-    state = state.copyWith(tasks: myTasks, isLoading: false);
+    
+    // De-duplicate if needed and update
+    final uniqueTasks = <String, Task>{};
+    for (var task in myTasks) {
+      uniqueTasks[task.id] = task;
+    }
+
+    state = state.copyWith(
+      tasks: uniqueTasks.values.toList(), 
+      isLoading: false
+    );
   }
   
   @override

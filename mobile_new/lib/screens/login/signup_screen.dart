@@ -81,7 +81,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         _confettiController.play();
         await Future.delayed(const Duration(seconds: 2));
         if (mounted) {
-          context.go('/swipe');
+          // Send new users directly to KYC after signup
+          context.go('/kyc-verification');
         }
       }
     } catch (e) {

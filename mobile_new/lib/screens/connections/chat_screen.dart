@@ -1,0 +1,988 @@
+import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../config/theme.dart';
+import '../../managers/matches_provider.dart';
+import '../../managers/auth_provider.dart';
+import '../../parts/chat_bubble.dart';
+import 'package:intl/intl.dart';
+import '../../data_types/task_match.dart';
+import '../../services/supabase_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+
+class ChatScreen extends ConsumerStatefulWidget {
+  final String matchId;
+  final bool autofocus;
+
+  const ChatScreen({
+    super.key,
+    required this.matchId,
+    this.autofocus = false,
+  });
+
+  @override
+  ConsumerState<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends ConsumerState<ChatScreen> {
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode(); // Added FocusNode for reliable autofocus
+  Timer? _typingTimer;
+  Timer? _countdownTimer;
+  Duration _remainingTime = const Duration(hours: 12);
+  
+  // Voice Recording state
+  final _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  String? _recordingPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCountdown();
+    
+    // Updated: Handle autofocus reliably with a delay to account for page transitions
+    if (widget.autofocus) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _focusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _updateRemainingTime();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _updateRemainingTime();
+    });
+  }
+
+  void _updateRemainingTime() {
+    final matchesState = ref.read(matchesProvider);
+    final matchIndex = matchesState.matches.indexWhere((m) => m.id == widget.matchId);
+    if (matchIndex != -1) {
+      final match = matchesState.matches[matchIndex];
+      final expiryTime = match.matchedAt.add(const Duration(hours: 12));
+      final now = DateTime.now().toUtc();
+      final difference = expiryTime.difference(now);
+      
+      setState(() {
+        _remainingTime = difference.isNegative ? Duration.zero : difference;
+      });
+      
+      if (difference.isNegative && _countdownTimer?.isActive == true) {
+        _countdownTimer?.cancel();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose(); // Dispose FocusNode
+    _typingTimer?.cancel();
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  Widget _buildVerifiedIdentityNotice(TaskMatch match) {
+    final currentUser = ref.watch(currentUserProvider);
+    final bool isClient = currentUser?.role == 'client';
+    
+    // Determine the "other" person's KYC
+    final String? otherSelfie = isClient ? match.workerSelfieUrl : match.clientSelfieUrl;
+    final String? otherName = isClient ? match.workerName : match.clientName;
+    final String? otherStatus = isClient ? match.workerVerificationStatus : match.clientVerificationStatus;
+
+    if (otherSelfie == null) return const SizedBox.shrink();
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return GestureDetector(
+      onTap: () => _showMutualKYCDialog(match),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: otherStatus == 'verified' 
+              ? (isDark ? Colors.blue.withOpacity(0.1) : Colors.blue.withOpacity(0.05))
+              : (isDark ? Colors.green.withOpacity(0.1) : Colors.green.withOpacity(0.05)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: otherStatus == 'verified' ? Colors.blue.withOpacity(0.3) : Colors.green.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(
+                    imageUrl: otherSelfie,
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => const Icon(Icons.person),
+                  ),
+                ),
+                if (otherStatus == 'verified')
+                  const Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Icon(Icons.verified, size: 16, color: Color(0xFF0095F6)),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    otherStatus == 'verified' ? "TRUSTED PARTNER" : "IDENTITY PROOFS AVAILABLE",
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                      color: otherStatus == 'verified' ? Colors.blue.shade700 : Colors.green.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "You are chatting with $otherName. Tap to view mutual identity proofs.",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white60 : Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMutualKYCDialog(TaskMatch match) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          children: [
+            Icon(Icons.security, color: AppTheme.electricMedium, size: 32),
+            const SizedBox(height: 8),
+            Text('Mutual Identity Verification', 
+              style: AppTheme.heading3.copyWith(fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                 const Text(
+                  'To ensure a safe campus environment, both users share their primary KYC details once matched.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
+                
+                // Worker Side
+                _buildKYCCard(
+                  'Worker: ${match.workerName ?? 'Anonymous'}',
+                  match.workerSelfieUrl,
+                  match.workerIdCardUrl,
+                  match.workerSelfieWithIdUrl,
+                  match.workerVerificationStatus == 'verified',
+                ),
+                
+                const SizedBox(height: 16),
+                const Icon(Icons.swap_vert, color: Colors.grey),
+                const SizedBox(height: 16),
+                
+                // Client Side
+                _buildKYCCard(
+                  'Poster: ${match.clientName ?? 'Anonymous'}',
+                  match.clientSelfieUrl,
+                  match.clientIdCardUrl,
+                  match.clientSelfieWithIdUrl,
+                  match.clientVerificationStatus == 'verified',
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('DISMISS', style: TextStyle(fontWeight: FontWeight.w900, color: AppTheme.electricMedium)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKYCCard(String title, String? selfie, String? idCard, String? selfieWithId, bool isVerified) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isVerified ? Colors.blue.withOpacity(0.3) : Colors.grey.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Spacer(),
+              if (isVerified)
+                const Icon(Icons.verified, size: 16, color: Colors.blue),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildKYCThumbnail('Selfie', selfie),
+              const SizedBox(width: 8),
+              _buildKYCThumbnail('ID Card', idCard),
+              const SizedBox(width: 8),
+              _buildKYCThumbnail('Handheld', selfieWithId),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKYCThumbnail(String label, String? url) {
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: url != null ? () => _showFullScreenImage(url, label) : null,
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: url != null 
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(
+                      imageUrl: url, 
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => const Icon(Icons.photo, size: 20, color: Colors.grey),
+                    ),
+                  )
+                : const Icon(Icons.no_photography, size: 20, color: Colors.grey),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(fontSize: 8, color: Colors.grey, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  void _showFullScreenImage(String url, String title) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            title: Text(title, style: const TextStyle(color: Colors.white)),
+            iconTheme: const IconThemeData(color: Colors.white),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4,
+              child: CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => const CircularProgressIndicator(color: Colors.white),
+                errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _sendMessage() {
+    if (_remainingTime.inSeconds == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chat expired. You can no longer send messages.')),
+      );
+      return;
+    }
+    final content = _messageController.text.trim();
+    if (content.isEmpty) return;
+
+    ref.read(chatProvider(widget.matchId).notifier).sendMessage(content);
+    _messageController.clear();
+
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _scrollToBottom();
+    });
+  }
+
+  void _onMessageChanged(String value) {
+    if (_typingTimer == null || !_typingTimer!.isActive) {
+      ref.read(chatProvider(widget.matchId).notifier).sendTypingIndicator(true);
+    }
+
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        ref.read(chatProvider(widget.matchId).notifier).sendTypingIndicator(false);
+      }
+    });
+  }
+
+  Widget _buildExpiryNotice() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.orange.withOpacity(0.05) : Colors.orange.withOpacity(0.02),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.auto_delete_outlined, size: 16, color: Colors.orange),
+              const SizedBox(width: 8),
+              Text(
+                "12H EPHEMERAL CHAT",
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "For security and privacy, this chat and all its messages will be permanently deleted 12 hours after the match was created.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white60 : Colors.black54,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCountdownTag() {
+    final bool isExpired = _remainingTime.inSeconds == 0;
+    final String hours = _remainingTime.inHours.toString().padLeft(2, '0');
+    final String minutes = (_remainingTime.inMinutes % 60).toString().padLeft(2, '0');
+    final String seconds = (_remainingTime.inSeconds % 60).toString().padLeft(2, '0');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: isExpired ? Colors.red.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: isExpired ? Colors.red : Colors.orange, width: 0.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 10, color: isExpired ? Colors.red : Colors.orange),
+          const SizedBox(width: 4),
+          Text(
+            isExpired ? "EXPIRED" : "$hours:$minutes:$seconds",
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+              color: isExpired ? Colors.red : Colors.orange,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleVideoCall(BuildContext context, String otherUserName) {
+    final matchesState = ref.read(matchesProvider);
+    final match = matchesState.matches.firstWhere((m) => m.id == widget.matchId);
+    final currentUser = ref.read(currentUserProvider);
+    final otherUserId = currentUser?.role == 'client' ? match.workerId : match.clientId;
+
+    ref.read(supabaseServiceProvider).sendCallSignal(
+      targetUserId: otherUserId,
+      matchId: widget.matchId,
+      isVoiceOnly: false,
+    );
+
+    context.push('/call/${widget.matchId}', extra: {
+      'isVoiceOnly': false,
+      'otherUserName': otherUserName,
+    });
+  }
+
+  void _handleVoiceCall(BuildContext context, String otherUserName) {
+    final matchesState = ref.read(matchesProvider);
+    final match = matchesState.matches.firstWhere((m) => m.id == widget.matchId);
+    final currentUser = ref.read(currentUserProvider);
+    final otherUserId = currentUser?.role == 'client' ? match.workerId : match.clientId;
+
+    ref.read(supabaseServiceProvider).sendCallSignal(
+      targetUserId: otherUserId,
+      matchId: widget.matchId,
+      isVoiceOnly: true,
+    );
+
+    context.push('/call/${widget.matchId}', extra: {
+      'isVoiceOnly': true,
+      'otherUserName': otherUserName,
+    });
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: source, imageQuality: 70);
+    if (image != null) {
+      _sendMediaMessage(File(image.path), 'image');
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    final picker = ImagePicker();
+    final video = await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(minutes: 1));
+    if (video != null) {
+      _sendMediaMessage(File(video.path), 'video');
+    }
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getApplicationDocumentsDirectory();
+        final path = p.join(directory.path, 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a');
+        
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        setState(() {
+          _isRecording = true;
+          _recordingPath = path;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error starting recording: $e');
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+      });
+      if (path != null) {
+        _sendMediaMessage(File(path), 'voice');
+      }
+    } catch (e) {
+      debugPrint('Error stopping recording: $e');
+    }
+  }
+
+  Future<void> _sendMediaMessage(File file, String type) async {
+    final url = await ref.read(supabaseServiceProvider).uploadChatMedia(widget.matchId, file);
+    if (url != null) {
+      ref.read(chatProvider(widget.matchId).notifier).sendMessage(url, type: type);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Listen for safety errors and warn the user
+    ref.listen<ChatState>(chatProvider(widget.matchId), (previous, next) {
+      if (next.error == 'Message contains prohibited content') {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('⚠️ Safety Warning', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            content: const Text(
+              'Your message was blocked because it contains prohibited words (sexual, abusive, or illegal).\n\n'
+              'Please keep the conversation professional. Continued violations may result in account suspension.',
+              style: TextStyle(fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('I UNDERSTAND'),
+              ),
+            ],
+          ),
+        );
+      }
+    });
+
+    final chatState = ref.watch(chatProvider(widget.matchId));
+    final currentUser = ref.watch(currentUserProvider);
+    final matchesState = ref.watch(matchesProvider);
+    final matchIndex = matchesState.matches.indexWhere((m) => m.id == widget.matchId);
+    
+    // ✨ ROBUST FALLBACK: If match isn't in state (e.g. view error or sync lag),
+    // we show the loading state but don't hang forever - loadMessages logic will
+    // still attempt to fetch the actual messages.
+    if (matchIndex == -1) {
+      if (matchesState.isLoading) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      // If we're not loading but still miss the match, the match might be "orphaned"
+      // or the SQL view is broken. Show a better error or a minimal header.
+      return _buildMinimalOrphanedChat(context);
+    }
+    
+    final match = matchesState.matches[matchIndex];
+    final bool isMeWorker = currentUser?.id == match.workerId;
+    final bool isClient = currentUser?.id == match.clientId;
+    final otherUserName = isMeWorker ? match.clientName : match.workerName;
+    final otherUserAvatar = isMeWorker ? match.clientAvatar : match.workerAvatar;
+    final otherUserVerified = (isMeWorker ? match.clientVerificationStatus : match.workerVerificationStatus) == 'verified';
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.white,
+      appBar: AppBar(
+        backgroundColor: isDark ? Colors.black : Colors.white,
+        elevation: 0.5,
+        centerTitle: false,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+              backgroundImage: otherUserAvatar != null ? CachedNetworkImageProvider(otherUserAvatar) : null,
+              child: otherUserAvatar == null ? Text(otherUserName?[0] ?? '?', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14)) : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                   Row(
+                     children: [
+                       Text(
+                         otherUserName ?? 'Unknown',
+                         style: TextStyle(
+                           fontSize: 15,
+                           fontWeight: FontWeight.bold,
+                           color: isDark ? Colors.white : Colors.black87,
+                         ),
+                       ),
+                       if (otherUserVerified || isClient ? match.workerSelfieUrl != null : match.clientSelfieUrl != null) ...[
+                         const SizedBox(width: 4),
+                         GestureDetector(
+                           onTap: () => _showMutualKYCDialog(match),
+                           child: Icon(
+                             Icons.verified_user, 
+                             size: 14, 
+                             color: otherUserVerified ? const Color(0xFF0095F6) : Colors.green
+                           ),
+                         ),
+                       ],
+                       const SizedBox(width: 8),
+                       _buildCountdownTag(),
+                     ],
+                   ),
+                  Text(
+                    chatState.isOtherUserOnline ? 'Active now' : 'Active sometime ago',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: chatState.isOtherUserOnline ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.phone_outlined, color: isDark ? Colors.white : Colors.black87),
+            onPressed: () => _handleVoiceCall(context, otherUserName ?? 'User'),
+          ),
+          IconButton(
+            icon: Icon(Icons.videocam_outlined, color: isDark ? Colors.white : Colors.black87),
+            onPressed: () => _handleVideoCall(context, otherUserName ?? 'User'),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Permanent Action Bar (Realtime synced)
+          _buildActionOverlay(match, isClient),
+          
+          Expanded(
+            child: chatState.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    itemCount: chatState.messages.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return Column(
+                          children: [
+                            _buildExpiryNotice(),
+                             if (otherUserVerified || (isClient ? match.workerSelfieUrl != null : match.clientSelfieUrl != null))
+                               _buildVerifiedIdentityNotice(match),
+                          ],
+                        );
+                      }
+                      
+                      final message = chatState.messages[index - 1];
+                      final isCurrentUser = message.senderId == currentUser?.id;
+                      bool showDateHeader = false;
+                      String dateLabel = '';
+                      if (index == 1) {
+                        showDateHeader = true;
+                      } else {
+                        final prevMessage = chatState.messages[index - 2];
+                        if (message.timestamp.day != prevMessage.timestamp.day) {
+                          showDateHeader = true;
+                        }
+                      }
+
+                      if (showDateHeader) {
+                        final now = DateTime.now();
+                        if (message.timestamp.day == now.day && message.timestamp.month == now.month && message.timestamp.year == now.year) {
+                          dateLabel = 'TODAY';
+                        } else {
+                          dateLabel = DateFormat('MMMM dd').format(message.timestamp).toUpperCase();
+                        }
+                      }
+
+                      return Column(
+                        children: [
+                          if (showDateHeader)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 24),
+                              child: Text(
+                                dateLabel,
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1.2),
+                              ),
+                            ),
+                          ChatBubble(message: message, isCurrentUser: isCurrentUser),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+          if (chatState.isTyping)
+             Padding(
+               padding: const EdgeInsets.only(left: 20, bottom: 8),
+               child: Row(
+                 children: [
+                   Text('${otherUserName ?? 'Someone'} is typing...', 
+                     style: TextStyle(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic)),
+                 ],
+               ),
+             ),
+          _buildPremiumInput(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionOverlay(TaskMatch match, bool isClient) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final budget = match.task?.budget ?? 0;
+    final status = match.task?.status ?? 'open';
+    final isLocked = status == 'in_progress';
+    final isCompleted = status == 'completed';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+        border: Border(bottom: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade200)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (match.task?.title ?? 'GIG').toUpperCase(),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  '₹${budget.toInt()}',
+                  style: TextStyle(
+                    fontSize: 18, 
+                    fontWeight: FontWeight.w900, 
+                    color: (isLocked || isCompleted) ? AppTheme.electricMedium : (isDark ? Colors.white : Colors.black)
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isClient && !isLocked && !isCompleted)
+            ElevatedButton(
+              onPressed: () => _finalizeDeal(match.taskId),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF22C55E),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                elevation: 0,
+              ),
+              child: const Text('FINALIZE DEAL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            )
+          else if (isLocked || isCompleted)
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0),
+              child: Row(
+                children: [
+                  if (isClient && isLocked)
+                    ElevatedButton(
+                      onPressed: () => _completeTask(match.taskId),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.electricMedium,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      child: const Text('COMPLETE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    ),
+                  if (isClient && isLocked) const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isCompleted ? const Color(0xFFDCFCE7) : const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isCompleted ? Icons.check_circle_rounded : Icons.verified_rounded, 
+                          size: 16, 
+                          color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF0EA5E9)
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isCompleted ? 'COMPLETED' : 'DEAL LOCKED', 
+                          style: TextStyle(
+                            color: isCompleted ? const Color(0xFF16A34A) : const Color(0xFF0EA5E9), 
+                            fontWeight: FontWeight.bold, 
+                            fontSize: 11
+                          )
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _completeTask(String taskId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete Task?'),
+        content: const Text('Marking this task as completed will finish the gig and notify the worker.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('COMPLETE GIG')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ref.read(supabaseServiceProvider).updateTask(taskId, {'status': 'completed'});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Task marked as completed! 🎉'), backgroundColor: Color(0xFF22C55E)),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _finalizeDeal(String taskId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Lock this deal?'),
+        content: const Text('This will move the task to "In Progress". Both parties will see a confirmed green checkmark.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NOT YET')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('CONFIRM')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ref.read(supabaseServiceProvider).updateTask(taskId, {'status': 'in_progress'});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Deal Finalized! 🚀'), backgroundColor: Color(0xFF22C55E)),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Widget _buildPremiumInput() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    return Container(
+      padding: EdgeInsets.fromLTRB(12, 8, 12, MediaQuery.of(context).padding.bottom + 8),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black : Colors.white,
+        border: Border(top: BorderSide(color: isDark ? Colors.white10 : Colors.grey.shade200)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(Icons.camera_alt_rounded, color: isDark ? Colors.white70 : Colors.black54),
+            onPressed: () => _pickImage(ImageSource.camera),
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF262626) : const Color(0xFFF2F2F2),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: TextField(
+                controller: _messageController,
+                focusNode: _focusNode,
+                autofocus: false, // Handled manually in initState
+                style: TextStyle(fontSize: 15, color: isDark ? Colors.white : Colors.black87),
+                decoration: const InputDecoration(
+                  hintText: 'Message...',
+                  hintStyle: TextStyle(color: Colors.grey, fontSize: 15),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(vertical: 12),
+                ),
+                onChanged: _onMessageChanged,
+                onSubmitted: (_) => _sendMessage(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _messageController,
+            builder: (context, value, child) {
+              final isNotEmpty = value.text.trim().isNotEmpty;
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: isNotEmpty
+                    ? TextButton(
+                        onPressed: _sendMessage,
+                        child: const Text(
+                          'Send',
+                          style: TextStyle(color: Color(0xFF0095F6), fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                      )
+                    : Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              _isRecording ? Icons.stop_circle_rounded : Icons.mic_none_rounded, 
+                              color: _isRecording ? Colors.red : (isDark ? Colors.white70 : Colors.black54)
+                            ),
+                            onPressed: _isRecording ? _stopRecording : _startRecording, 
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.videocam_outlined, color: isDark ? Colors.white70 : Colors.black54),
+                            onPressed: _pickVideo,
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.image_outlined, color: isDark ? Colors.white70 : Colors.black54),
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                          ),
+                        ],
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Unused as replaced by _showMutualKYCDialog
+
+  Widget _buildMinimalOrphanedChat(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.white : Colors.black),
+          onPressed: () => context.pop(),
+        ),
+        title: Text("Chat", style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+      ),
+      body: Column(
+        children: [
+          Expanded(child: Center(child: Text("Loading messages robustly...", style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)))),
+          _buildPremiumInput(),
+        ],
+      ),
+    );
+  }
+
+}

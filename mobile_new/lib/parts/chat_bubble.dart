@@ -114,7 +114,18 @@ class ChatBubble extends StatelessWidget {
                       if (message.type == 'image')
                          ClipRRect(
                            borderRadius: BorderRadius.circular(12),
-                           child: Image.network(message.content, fit: BoxFit.cover),
+                           child: Image.network(
+                             message.content, 
+                             fit: BoxFit.cover,
+                             errorBuilder: (context, error, stackTrace) => Container(
+                               width: 200,
+                               height: 150,
+                               color: AppTheme.grey100,
+                               child: const Center(
+                                 child: Icon(Icons.broken_image, color: AppTheme.grey400),
+                               ),
+                             ),
+                           ),
                          )
                       else if (message.type == 'video')
                         Padding(

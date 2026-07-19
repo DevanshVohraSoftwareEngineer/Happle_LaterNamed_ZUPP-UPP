@@ -7,7 +7,7 @@ import 'dart:convert';
 // PHASE 7: OFFLINE QUEUE SERVICE 🛡️
 // ========================================
 
-/// Zomato-style offline queue for failure recovery
+/// ZUPP-UPP-style offline queue for failure recovery
 /// Queues critical actions when network is unavailable
 /// Retries with exponential backoff when connection is restored
 class OfflineQueueService {

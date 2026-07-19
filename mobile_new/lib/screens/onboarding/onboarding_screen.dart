@@ -20,7 +20,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   final List<OnboardingPage> _pages = [
     const OnboardingPage(
-      title: 'Welcome to Happle',
+      title: 'Welcome to ZUPP-UPP',
       subtitle: 'Connect with local opportunities and earn money doing what you love',
       image: 'assets/images/onboarding_1.png',
       color: AppTheme.superLikeBlue,
@@ -326,7 +326,7 @@ class _UserTypeSelectionSheetState extends ConsumerState<UserTypeSelectionSheet>
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'How do you want to use Happle?',
+            'How do you want to use ZUPP-UPP?',
             style: AppTheme.heading2,
             textAlign: TextAlign.center,
           ),
@@ -698,7 +698,7 @@ class ClientProfileSetupScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Welcome to Happle'),
+        title: const Text('Welcome to ZUPP-UPP'),
         automaticallyImplyLeading: false,
       ),
       body: Padding(

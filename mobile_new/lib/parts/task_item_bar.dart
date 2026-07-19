@@ -246,9 +246,80 @@ class _TaskItemBarState extends ConsumerState<TaskItemBar> with SingleTickerProv
           ),
           
           const SizedBox(height: 24),
+
+          // Report Button
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _showReportDialog,
+              icon: const Icon(Icons.report_problem_outlined, size: 14, color: Colors.orange),
+              label: const Text('Report Post', style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                backgroundColor: Colors.orange.withOpacity(0.05),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
           
           // 🛡️ KYC Privacy: IDs are only shown after matching in the chat.
           // The public feed only shows the mandatory selfie in the circle avatar.
+        ],
+      ),
+    );
+  }
+
+  void _showReportDialog() {
+    final reasons = [
+      'Inappropriate content',
+      'Spam',
+      'Harassment',
+      'False information',
+      'Illegal activities',
+      'Other',
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Report Post', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: reasons.map((reason) => ListTile(
+            title: Text(reason, style: const TextStyle(fontSize: 14)),
+            onTap: () async {
+              Navigator.pop(context);
+              try {
+                await ref.read(supabaseServiceProvider).reportTask(
+                  taskId: widget.task.id,
+                  reportedUserId: widget.task.clientId,
+                  reason: reason,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Thank you for reporting. Our team will review this post.'),
+                      backgroundColor: AppTheme.navyMedium,
+                    ),
+                  );
+                  // Optionally hide the post locally
+                  widget.onNope();
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error reporting post: $e')),
+                  );
+                }
+              }
+            },
+          )).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
         ],
       ),
     );

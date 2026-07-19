@@ -109,14 +109,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
   bool _isUserRestricted(user_model.User? user) {
     if (user == null) return false;
     
-    // RESTRICTED SESSION CHECK: If verified but missing physical documents, 
-    // we don't want to block their access anymore as an admin has approved them.
-    // We only mark as restricted if they are NOT verified and something is wrong.
-    // Actually, if they are verified, we trust that.
-    
+    // 🚫 BAN CHECK: If bannedUntil is in the future, the user is restricted.
+    if (user.bannedUntil != null && user.bannedUntil!.isAfter(DateTime.now())) {
+      print('🚫 User is banned until: ${user.bannedUntil}');
+      return true;
+    }
+
     if (user.verified) return false;
     
-    // Legacy: Catch inconsistent states for unverified users if needed.
     return false;
   }
 
@@ -198,6 +198,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       selfieUrl: profileData['selfie_url'] ?? profileData['selfieUrl'],
       selfieWithIdUrl: profileData['selfie_with_id_url'] ?? profileData['selfieWithIdUrl'],
       verificationStatus: profileData['verification_status'] ?? profileData['verificationStatus'],
+      bannedUntil: profileData['banned_until'] != null ? DateTime.parse(profileData['banned_until']).toLocal() : null,
     );
   }
 
@@ -226,7 +227,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
 
     final success = await _biometricService.authenticate(
-      reason: 'Please authenticate to access Happle',
+      reason: 'Please authenticate to access ZUPP-UPP',
     );
 
     if (success) {

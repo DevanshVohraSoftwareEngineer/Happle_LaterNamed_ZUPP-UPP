@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../managers/auth_provider.dart';
-import 'swipe/swipe_feed_screen.dart';
+import 'swipe/discover_feed_screen.dart';
 import 'worker/asap_mode_screen.dart';
 
 class HomeScreenDecision extends ConsumerWidget {
@@ -18,7 +18,7 @@ class HomeScreenDecision extends ConsumerWidget {
     if (user.role == 'worker') {
       return const ASAPModeScreen();
     } else {
-      return const SwipeFeedScreen();
+      return const DiscoverFeedScreen();
     }
   }
 }

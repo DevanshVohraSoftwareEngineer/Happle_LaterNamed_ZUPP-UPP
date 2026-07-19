@@ -69,36 +69,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 80),
+                    const SizedBox(height: 120),
                     
-                    // Classic Apple-style Logo Vibe
                     Center(
                       child: Text(
-                        'H',
+                        'ZUPP-UPP',
                         style: TextStyle(
-                          fontSize: 64,
+                          fontSize: 42,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: -4,
+                          letterSpacing: -1.5,
                           color: isDark ? Colors.white : Colors.black,
                         ),
                       ),
                     ),
                     
-                    const SizedBox(height: 8),
-                    
-                    Center(
-                      child: Text(
-                        'Happle',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1,
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 60),
+                    const SizedBox(height: 80),
 
                     if (authState.sessionUser != null) ...[
                        // Welcome back UI

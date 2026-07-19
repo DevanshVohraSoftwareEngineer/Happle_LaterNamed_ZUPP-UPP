@@ -9,30 +9,30 @@ import '../screens/login/signup_screen.dart';
 import '../screens/login/forgot_password_screen.dart';
 import '../screens/login/reset_password_screen.dart';
 import '../screens/login/auth_success_screen.dart';
-import '../screens/swipe/swipe_feed_screen.dart';
-import '../screens/milan/matches_list_screen.dart';
-import '../screens/milan/chat_screen.dart';
+import '../screens/discover/discover_feed_screen.dart';
+import '../screens/connections/connections_list_screen.dart';
+import '../screens/connections/chat_screen.dart';
 import '../screens/categories_screen.dart';
 import '../screens/calorie_counter_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/profile/edit_profile_screen.dart';
 import '../screens/profile/settings_screen.dart';
-import '../screens/kaam/post_task_screen.dart';
-import '../screens/kaam/my_tasks_screen.dart';
-import '../screens/kaam/posted_tasks_screen.dart';
-import '../screens/kaam/task_feed_screen.dart';
-import '../screens/kaam/task_details_screen.dart';
+import '../screens/tasks/post_task_screen.dart';
+import '../screens/tasks/my_tasks_screen.dart';
+import '../screens/tasks/posted_tasks_screen.dart';
+import '../screens/tasks/task_feed_screen.dart';
+import '../screens/tasks/task_details_screen.dart';
 import '../screens/kyc/kyc_verification_screen.dart';
 
-import '../screens/worker/asap_mode_screen.dart';
+import '../screens/earner/asap_mode_screen.dart';
 import '../screens/legal/about_us_screen.dart';
 import '../screens/legal/contact_us_screen.dart';
 import '../screens/legal/privacy_policy_screen.dart';
 import '../screens/legal/terms_conditions_screen.dart';
 import '../screens/legal/cancellation_refund_screen.dart';
 import '../screens/task_completion_screen.dart';
-import '../screens/milan/call_screen.dart';
-import '../screens/kaam/task_navigation_screen.dart';
+import '../screens/connections/call_screen.dart';
+import '../screens/tasks/task_navigation_screen.dart';
 import '../parts/bottom_nav_shell.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -69,21 +69,30 @@ final routerProvider = Provider<GoRouter>((ref) {
         final isRestricted = authState.isRestricted;
 
         // 🛡️ Loading Guard (Inside Auth): If user object is null but session is active, stay put.
-        // This prevents kicking verified users to KYC screen during the split-second profile fetch.
-        if (user == null && authState.isLoading) {
-           print('🛡️ [Router] Authenticated but profile loading. Waiting...');
+        // This prevents kicking verified users to KYC screen during the split-second before profile fetch.
+        // ✨ FIX: Be more permissive during the loading state to stop jumping to KYC.
+        if (user == null || authState.isLoading) {
+           print('🛡️ [Router] Auth loading or profile missing. Staying put to avoid KYC jump.');
            return null;
         }
 
-        // 1. Mandatory KYC Guard (Forward only)
+        // 1. Optional KYC / Mandatory KYC Guard (Forward only)
         if (path != '/kyc-verification' && path != '/login' && path != '/profile/settings' && path != '/check-in') {
-          if (!isVerified) {
-            print('🛡️ [Router] User NOT verified. Redirecting to KYC.');
+          // Disable mandatory KYC for now to prevent users from being trapped randomly
+          // If you want to enable it later, uncomment the block below:
+          /*
+          final status = user.verificationStatus?.toString().toLowerCase();
+          final isPendingOrVerified = status == 'verified' || status == 'pending' || status == 'in_review';
+          final hasDocs = (user.idCardUrl?.isNotEmpty ?? false) || (user.selfieUrl?.isNotEmpty ?? false);
+          
+          if (!isVerified && !isPendingOrVerified && !hasDocs) {
+            print('🛡️ [Router] Redirecting to mandatory KYC.');
             return '/kyc-verification';
           }
+          */
           
           if (isRestricted) {
-             print('🛡️ [Router] Restricted user but verified. Allowing access, but might block specific actions later.');
+             print('🛡️ [Router] Restricted user but verified/pending. Allowing access.');
           }
         }
 
@@ -161,7 +170,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           return ScaffoldWithNavBar(navigationShell: navigationShell);
         },
         branches: [
-          StatefulShellBranch(routes: [GoRoute(path: '/swipe', builder: (context, state) => const SwipeFeedScreen())]),
+          StatefulShellBranch(routes: [GoRoute(path: '/swipe', builder: (context, state) => const DiscoverFeedScreen())]),
           StatefulShellBranch(routes: [GoRoute(path: '/categories', builder: (context, state) => const CategoriesScreen())]),
           // Matches (Chat) moved to top-level
           
@@ -213,7 +222,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ✨ TOP-LEVEL ROUTES (Full Screen)
       GoRoute(
         path: '/matches',
-        builder: (context, state) => const MatchesListScreen(),
+        builder: (context, state) => const ConnectionsListScreen(),
         routes: [
           GoRoute(
             path: ':matchId/chat', 

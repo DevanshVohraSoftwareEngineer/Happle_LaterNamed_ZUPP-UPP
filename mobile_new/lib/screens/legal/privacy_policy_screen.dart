@@ -106,7 +106,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
             _buildSection(
               '1. Introduction',
-              'Happle Technologies Pvt. Ltd. ("we," "our," or "us") respects your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application (the "App") and related services.',
+              'ZUPP-UPP Technologies Pvt. Ltd. ("we," "our," or "us") respects your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application (the "App") and related services.',
             ),
 
             _buildSection(
@@ -226,14 +226,14 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Happle Technologies Pvt. Ltd.',
+                    'ZUPP-UPP Technologies Pvt. Ltd.',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   SizedBox(height: 8),
-                  Text('Email: privacy@happle.com'),
+                  Text('Email: privacy@zupp-upp.com'),
                   Text('Phone: +91-1800-XXX-XXXX'),
                   Text('Address: 123 Business District, Tech Park, Sector 15, Gurugram, Haryana - 122001, India'),
                 ],

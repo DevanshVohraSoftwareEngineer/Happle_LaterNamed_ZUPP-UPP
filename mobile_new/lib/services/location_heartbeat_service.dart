@@ -6,7 +6,7 @@ import '../services/supabase_service.dart';
 // PHASE 5: LOCATION HEARTBEAT SERVICE 📍
 // ========================================
 
-/// Zomato-style location heartbeat for real-time tracking
+/// ZUPP-UPP-style location heartbeat for real-time tracking
 /// Sends GPS updates every 10 seconds during active tasks
 class LocationHeartbeatService {
   static final LocationHeartbeatService instance = LocationHeartbeatService._internal();
