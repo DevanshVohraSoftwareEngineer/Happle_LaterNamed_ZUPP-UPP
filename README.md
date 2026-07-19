@@ -1,11 +1,10 @@
-# Happle - Student Task Marketplace (Mobile)
+# Happle later named ZUPP-UPP - Student Task Marketplace (Mobile)
 
-A Tinder-style mobile platform connecting college students for quick tasks and gigs. Built with Flutter and Supabase.
+A Mobile platform connecting college students for quick tasks and gigs. Built with Flutter and Supabase.
 
 ## 🚀 Project Status: High-Fidelity Mobile App ✅
 
 ### ✅ Core Features (Flutter):
-- **Tinder-Style Task Matching**: Swipe-based interface for workers to find tasks.
 - **Supabase Real-time Backend**: Instant updates for tasks, matches, and chat.
 - **Advanced KYC System**: Identity verification using Google ML Kit (OCR & Face Detection).
 - **Secure Payments**: Integrated with Razorpay for escrow and wallet management.
